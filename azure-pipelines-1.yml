@@ -1,0 +1,106 @@
+trigger: 
+- feature/*
+- main
+
+pool: macbook-local
+
+parameters:
+- name: environment
+  displayName: Environment(dev/prod)
+  type: string
+  values: 
+  - dev
+  - prod
+
+variables:
+  workDir: '$(System.DefaultWorkingDirectory)/environments/${{ parameters.environment }}'
+
+stages:
+- stage: Build
+  displayName: Build
+  jobs: 
+  - job: TerraformInitFmtValidate
+    displayName: Terraform Init, Fmt, Validate Job
+    steps: 
+    - task: CmdLine@2
+      inputs:
+        script: 'echo Hello world'
+        
+  - job: TerraformInitPlan
+    displayName: Terraform Init and Plan Job
+    steps: 
+    - task: TerraformInstaller@1
+      inputs:
+        terraformVersion: 'latest'
+
+    - task: TerraformTask@5
+      inputs:
+        provider: 'azurerm'
+        command: 'init'
+        workingDirectory: $(workDir)
+        backendServiceArm: 'Workload_Identity_testing'
+        backendAzureRmStorageAccountName: 'todoappnitin1'
+        backendAzureRmContainerName: 'todoappcon1'
+        backendAzureRmKey: '${{ parameters.environment }}.terraform.tfstate'
+
+    - task: TerraformTask@5
+      inputs:
+        provider: 'azurerm'
+        command: 'plan'
+        workingDirectory: $(workDir)
+        environmentServiceNameAzureRM: 'Workload_Identity_testing'
+
+- stage: Scanning
+  displayName: Scanning
+  jobs: 
+  - job: TFSecScanningJob
+    displayName: TFSEC Scanning Wala Job
+    pool: macbook-local
+    steps:
+    - task: tfsec@1
+      inputs:
+        version: 'v1.26.0'
+        dir: $(workDir)
+
+  - job: TfLintScanningJob
+    displayName: TFLINT Scanning Wala Job
+    pool: macbook-local
+    steps:
+    - task: CmdLine@2
+      inputs:
+        script: 'echo Hello world'
+
+- stage: Deploy
+  displayName: Deploy
+  condition: eq(variables['Build.SourceBranch'], 'refs/heads/main')
+  jobs: 
+  - job: ManualValidation
+    displayName: Manual Validation kardo Please
+    pool: server
+    steps:
+    - task: ManualValidation@1
+      inputs:
+        notifyUsers: 'nitinchaudhary2425@gmail.com'
+        approvers: 'nitinchaudhary2425@gmail.com'
+        instructions: 'Plan check karlo ...'
+
+  - job: TerraformApply
+    displayName: Terraform Apply wala Job
+    dependsOn: ManualValidation
+    pool: macbook-local
+    steps:
+    - task: TerraformTask@5
+      inputs:
+        provider: 'azurerm'
+        command: 'init'
+        workingDirectory: $(workDir)
+        backendServiceArm: 'Workload_Identity_testing'
+        backendAzureRmStorageAccountName: 'todoappnitin1'
+        backendAzureRmContainerName: 'todoappcon1'
+        backendAzureRmKey: '${{ parameters.environment }}.terraform.tfstate'
+    - task: TerraformTask@5
+      inputs:
+        provider: 'azurerm'
+        command: 'apply'
+        workingDirectory: $(workDir)
+        environmentServiceNameAzureRM: 'Workload_Identity_testing'
